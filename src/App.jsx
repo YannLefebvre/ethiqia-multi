@@ -20,30 +20,36 @@ function genCode() {
 }
 
 // ── HOOK TIMER ───────────────────────────────────────────────────────
-// Utilisation : monter avec une key React différente pour reset complet
-// <TimerGate key={cardIdx} seconds={10} onUnlock={() => ...} />
-function useTimer(seconds) {
+function useTimer(seconds, resetKey) {
   const [remaining, setRemaining] = useState(seconds)
+  const [done, setDone] = useState(false)
   const ref = useRef(null)
+  const doneRef = useRef(false)
 
   useEffect(() => {
+    // Reset complet à chaque changement de resetKey
+    clearInterval(ref.current)
+    setRemaining(seconds)
+    setDone(false)
+    doneRef.current = false
+
     ref.current = setInterval(() => {
       setRemaining(r => {
-        if (r <= 1) { clearInterval(ref.current); return 0 }
+        if (r <= 1) {
+          clearInterval(ref.current)
+          if (!doneRef.current) {
+            doneRef.current = true
+            setDone(true)
+          }
+          return 0
+        }
         return r - 1
       })
     }, 1000)
     return () => clearInterval(ref.current)
-  }, []) // vide : démarre une seule fois, reset via key React
+  }, [resetKey]) // resetKey seul déclenche le reset
 
-  return { remaining, done: remaining === 0 }
-}
-
-// Composant wrapper qui se monte/démonte via key React
-function TimerGate({ seconds, onUnlock, children }) {
-  const { remaining, done } = useTimer(seconds)
-  useEffect(() => { if (done) onUnlock() }, [done])
-  return children({ remaining, done })
+  return { remaining, done }
 }
 
 // ── COMPOSANT TIMER DISCRET ──────────────────────────────────────────
@@ -236,32 +242,32 @@ function stringToColor(str) {
 }
 
 // ── PHASE VOTE INDIVIDUEL ─────────────────────────────────────────────
-function IndividualPhase({ session, player, players, cardIds, myVotes, onVote, onPhaseChange, isHost }) {
-  const [cardIdx, setCardIdx] = useState(0)
+function IndividualPhase({ session, player, players, cardIds, myVotes, allVotes, onVote, onPhaseChange, onCardChange, isHost }) {
+  // cardIdx piloté par session.current_card pour tous les joueurs
+  const cardIdx = session.current_card ?? 0
   const card = questions.find(q => q.id === cardIds[cardIdx])
   const voted = myVotes[card?.id]
   const totalCards = cardIds.length
   const doneCount = Object.keys(myVotes).filter(id => cardIds.includes(Number(id))).length
 
-  // canVote géré via TimerGate (monté avec key=cardIdx dans le JSX)
+  // Timer : reset à chaque nouvelle carte via key React (géré dans TimerGate)
   const [canVote, setCanVote] = useState(false)
   useEffect(() => { setCanVote(false) }, [cardIdx])
   useEffect(() => { if (voted) setCanVote(true) }, [voted])
 
-  const allVoted = players.every(p =>
-    cardIds.every(cid => false) // checked via server — simplified: host checks
-  )
+  // Tous les joueurs ont-ils voté cette carte ?
+  const allVotedCard = players.every(p => allVotes[p.id]?.[card?.id])
 
   const handleVote = async (opt) => {
     if (!canVote) return
     await onVote(card.id, opt)
   }
 
-  const goNext = () => {
-    if (cardIdx < totalCards - 1) setCardIdx(i => i + 1)
+  const goNext = async () => {
+    if (cardIdx < totalCards - 1) await onCardChange(cardIdx + 1)
   }
-  const goPrev = () => {
-    if (cardIdx > 0) setCardIdx(i => i - 1)
+  const goPrev = async () => {
+    if (cardIdx > 0) await onCardChange(cardIdx - 1)
   }
 
   if (!card) return null
@@ -280,7 +286,7 @@ function IndividualPhase({ session, player, players, cardIds, myVotes, onVote, o
       {/* Progress dots */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 20, flexWrap: 'wrap' }}>
         {cardIds.map((cid, i) => (
-          <div key={cid} onClick={() => setCardIdx(i)} style={{ width: 10, height: 10, borderRadius: '50%', cursor: 'pointer', background: myVotes[cid] ? (myVotes[cid] === 'A' ? '#4fc3f7' : '#ce93d8') : i === cardIdx ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.08)', transition: 'all 0.2s' }} />
+          <div key={cid} style={{ width: 10, height: 10, borderRadius: '50%', background: myVotes[cid] ? (myVotes[cid] === 'A' ? '#4fc3f7' : '#ce93d8') : i === cardIdx ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.08)', transition: 'all 0.2s' }} />
         ))}
       </div>
 
@@ -317,11 +323,58 @@ function IndividualPhase({ session, player, players, cardIds, myVotes, onVote, o
         ))}
       </div>
 
-      {/* Navigation */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-        <button onClick={goPrev} disabled={cardIdx === 0} style={{ ...btnStyle('rgba(255,255,255,0.06)', '#a09888'), flex: 0, padding: '10px 18px', opacity: cardIdx === 0 ? 0.3 : 1 }}>←</button>
-        <button onClick={goNext} disabled={cardIdx === totalCards - 1} style={{ ...btnStyle('rgba(255,255,255,0.06)', '#a09888'), opacity: cardIdx === totalCards - 1 ? 0.3 : 1 }}>Suivant →</button>
-      </div>
+      {/* Statut d'attente des autres joueurs */}
+      {voted && !allVotedCard && (
+        <div style={{ textAlign: 'center', padding: '10px 0', marginBottom: 10 }}>
+          <p style={{ margin: 0, fontSize: 12, color: '#665e52', fontStyle: 'italic' }}>
+            Vote enregistré ✓ — En attente des autres joueurs…
+            ({Object.values(allVotes).filter(v => v[card?.id]).length}/{players.length})
+          </p>
+        </div>
+      )}
+
+      {/* Résultats révélés seulement quand tous ont voté */}
+      {allVotedCard && (() => {
+        const countA = Object.values(allVotes).filter(v => v[card.id] === 'A').length
+        const countB = Object.values(allVotes).filter(v => v[card.id] === 'B').length
+        const tot = countA + countB
+        const pct = tot > 0 ? Math.round((countA / tot) * 100) : 0
+        return (
+          <div style={{ padding: '12px 14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, marginBottom: 16 }}>
+            <p style={{ margin: '0 0 8px', fontSize: 11, color: '#69f0ae', textTransform: 'uppercase', letterSpacing: 1 }}>✓ Tous ont voté — Résultats</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 12, color: '#4fc3f7', fontWeight: 700 }}>{pct}%</span>
+              <div style={{ flex: 1, height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{ width: `${pct}%`, height: '100%', background: '#4fc3f7', display: 'inline-block' }} />
+                <div style={{ width: `${100-pct}%`, height: '100%', background: '#ce93d8', display: 'inline-block' }} />
+              </div>
+              <span style={{ fontSize: 12, color: '#ce93d8', fontWeight: 700 }}>{100-pct}%</span>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {players.map(p => {
+                const v = allVotes[p.id]?.[card.id]
+                return (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '3px 8px', borderRadius: 20, background: v === 'A' ? 'rgba(79,195,247,0.12)' : 'rgba(206,147,216,0.12)', border: `1px solid ${v === 'A' ? 'rgba(79,195,247,0.3)' : 'rgba(206,147,216,0.3)'}` }}>
+                    <span style={{ fontSize: 10, color: '#c0b8a8' }}>{p.pseudo}</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: v === 'A' ? '#4fc3f7' : '#ce93d8' }}>Opt.{v === 'A' ? '1' : '2'}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Navigation — hôte seulement */}
+      {isHost && (
+        <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+          <button onClick={goPrev} disabled={cardIdx === 0} style={{ ...btnStyle('rgba(255,255,255,0.06)', '#a09888'), flex: 0, padding: '10px 18px', opacity: cardIdx === 0 ? 0.3 : 1 }}>←</button>
+          <button onClick={goNext} disabled={cardIdx === totalCards - 1} style={{ ...btnStyle('rgba(255,255,255,0.06)', '#a09888'), opacity: cardIdx === totalCards - 1 ? 0.3 : 1 }}>Suivant →</button>
+        </div>
+      )}
+      {!isHost && (
+        <p style={{ fontSize: 11, color: '#443d36', textAlign: 'center', marginBottom: 16 }}>L'hôte contrôle la navigation</p>
+      )}
 
       {/* Host control */}
       {isHost && (
@@ -453,8 +506,8 @@ function CollectivePhase({ session, player, players, cardIds, collectiveVotes, o
   const card = questions.find(q => q.id === cardIds[cardIdx])
   const totalCards = cardIds.length
 
-  const [canVote, setCanVote] = useState(false)
-  useEffect(() => { setCanVote(false) }, [cardIdx])
+  const { remaining, done: timerDone } = useTimer(THINK_DELAY, cardIdx)
+  const canVote = timerDone
 
   const cv = collectiveVotes[card?.id]
   const countA = cv?.count_a || 0
@@ -472,11 +525,7 @@ function CollectivePhase({ session, player, players, cardIds, collectiveVotes, o
 
   return (
     <Screen title="Vote collectif" subtitle={`Carte ${cardIdx + 1} / ${totalCards}`} color="#ce93d8"
-      headerRight={!canVote ? (
-        <TimerGate key={cardIdx} seconds={THINK_DELAY} onUnlock={() => setCanVote(true)}>
-          {({ remaining }) => <TimerRing seconds={remaining} total={THINK_DELAY} />}
-        </TimerGate>
-      ) : null}>
+      headerRight={!canVote ? <TimerRing seconds={remaining} total={THINK_DELAY} /> : null}>
 
       {/* Progress */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 20, flexWrap: 'wrap' }}>
@@ -506,11 +555,7 @@ function CollectivePhase({ session, player, players, cardIds, collectiveVotes, o
       )}
 
       {!canVote && !myVote[card?.id] && (
-        <TimerGate key={`coll-lock-${cardIdx}`} seconds={THINK_DELAY} onUnlock={() => setCanVote(true)}>
-          {({ remaining }) => (
-            <p style={{ textAlign: 'center', fontSize: 12, color: '#665e52', fontStyle: 'italic', marginBottom: 10 }}>Réfléchissez encore {remaining}s avant de voter…</p>
-          )}
-        </TimerGate>
+        <p style={{ textAlign: 'center', fontSize: 12, color: '#665e52', fontStyle: 'italic', marginBottom: 10 }}>Réfléchissez encore {remaining}s avant de voter…</p>
       )}
 
       {/* Options vote */}
@@ -551,8 +596,170 @@ function CollectivePhase({ session, player, players, cardIds, collectiveVotes, o
   )
 }
 
+
+// ── BILAN ICÔNES (style ethiqia solo) ────────────────────────────────
+const ICON_KEYS_MULTI = {
+  1:  { a: ['img_IAascendant','img_inclusion','img_Errors'], b: ['img_USERascendant'] },
+  2:  { a: ['img_IAascendant'], b: ['img_USERascendant','img_Robbery'] },
+  3:  { a: ['img_IAascendant','img_delestage'], b: ['img_MonteeCptces','img_USERascendant'] },
+  4:  { a: ['img_IAascendant','img_MonteeCptces'], b: ['img_USERascendant','img_Robbery'] },
+  5:  { a: ['img_Cheminement'], b: ['img_Tsprence'] },
+  6:  { a: ['img_delestage'], b: ['img_MonteeCptces'] },
+  7:  { a: ['img_inclusion'], b: ['img_Inegalite'] },
+  8:  { a: ['img_delestage','img_Gaspillage'], b: ['img_MonteeCptces','img_Integrite'] },
+  9:  { a: ['img_Errors'], b: ['img_Frugalite'] },
+  10: { a: ['img_Integrite'], b: ['img_Inegalite'] },
+  11: { a: ['img_Integrite'], b: ['img_Tsprence'] },
+  12: { a: ['img_Gaspillage'], b: ['img_Frugalite'] },
+  13: { a: ['img_Gaspillage'], b: ['img_Frugalite','img_CultureRespect'] },
+  14: { a: ['img_Errors'], b: ['img_Integrite','img_Destination'] },
+  15: { a: ['img_delestage'], b: ['img_USERascendant'] },
+  16: { a: ['img_delestage'], b: ['img_Integrite'] },
+  17: { a: ['img_Duplicite'], b: ['img_Tsprence'] },
+  18: { a: ['img_IAascendant'], b: ['img_Owner'] },
+  19: { a: ['img_delestage'], b: ['img_Frugalite'] },
+  20: { a: ['img_delestage'], b: ['img_MonteeCptces'] },
+  21: { a: ['img_Errors'], b: ['img_Frugalite'] },
+  22: { a: ['img_Integrite'], b: ['img_Errors'] },
+  23: { a: ['img_Frugalite'], b: ['img_Integrite'] },
+  24: { a: ['img_Cheminement'], b: ['img_Destination'] },
+  25: { a: ['img_Integrite'], b: ['img_Errors'] },
+  26: { a: ['img_IAascendant'], b: ['img_USERascendant'] },
+  27: { a: ['img_Tsprence'], b: ['img_BoiteNoire'] },
+  28: { a: ['img_inclusion'], b: ['img_Robbery'] },
+  29: { a: ['img_IAascendant'], b: ['img_USERascendant','img_Robbery'] },
+  30: { a: ['img_delestage'], b: ['img_USERascendant'] },
+  31: { a: ['img_inclusion'], b: ['img_Tsprence'] },
+  32: { a: ['img_MonteeCptces'], b: ['img_inclusion'] },
+  33: { a: ['img_Inegalite'], b: ['img_inclusion'] },
+  34: { a: ['img_BoiteNoire'], b: ['img_Tsprence'] },
+  35: { a: ['img_IAascendant','img_Gaspillage'], b: ['img_Frugalite'] },
+  36: { a: ['img_delestage'], b: ['img_MonteeCptces'] },
+  37: { a: ['img_BoiteNoire'], b: ['img_Tsprence'] },
+  38: { a: ['img_delestage'], b: ['img_MonteeCptces'] },
+  39: { a: ['img_CultureRespect'], b: ['img_CultureHegemonie'] },
+}
+
+const ICON_LABELS = {
+  img_IAascendant: 'IA ascendante', img_USERascendant: 'Humain ascendant',
+  img_MonteeCptces: 'Montée compétences', img_delestage: 'Délestage cognitif',
+  img_Tsprence: 'Transparence', img_BoiteNoire: 'Boîte noire',
+  img_Integrite: 'Intégrité', img_Duplicite: 'Duplicité',
+  img_Frugalite: 'Frugalité', img_Gaspillage: 'Gaspillage',
+  img_inclusion: 'Inclusion', img_Inegalite: 'Inégalité',
+  img_Errors: 'Erreurs', img_Cheminement: 'Cheminement',
+  img_Destination: 'Destination', img_Robbery: 'Spoliation',
+  img_Owner: 'Propriété', img_CultureRespect: 'Respect culturel',
+  img_CultureHegemonie: 'Hégémonie culturelle',
+}
+
+// Couleurs simples par icône (dégradé de l'arc-en-ciel pour les distinguer)
+const ICON_COLORS = {
+  img_IAascendant: '#4fc3f7', img_USERascendant: '#69f0ae',
+  img_MonteeCptces: '#69f0ae', img_delestage: '#ff8a80',
+  img_Tsprence: '#ffd764', img_BoiteNoire: '#b0bec5',
+  img_Integrite: '#a5d6a7', img_Duplicite: '#ff8a80',
+  img_Frugalite: '#80cbc4', img_Gaspillage: '#ef9a9a',
+  img_inclusion: '#ce93d8', img_Inegalite: '#ff8a80',
+  img_Errors: '#ff8a80', img_Cheminement: '#ffd764',
+  img_Destination: '#4fc3f7', img_Robbery: '#ff8a80',
+  img_Owner: '#ffd764', img_CultureRespect: '#69f0ae',
+  img_CultureHegemonie: '#ff8a80',
+}
+
+function IconesBilan({ players, cardIds, allVotes, collectiveVotes }) {
+  // Compte les icônes par joueur (votes indiv) + icônes collectives
+  const playerIconCounts = {}
+  players.forEach(p => { playerIconCounts[p.id] = {} })
+
+  cardIds.forEach(cid => {
+    players.forEach(p => {
+      const vote = allVotes[p.id]?.[cid]
+      if (!vote) return
+      const keys = ICON_KEYS_MULTI[cid]?.[vote === 'A' ? 'a' : 'b'] || []
+      keys.forEach(k => {
+        playerIconCounts[p.id][k] = (playerIconCounts[p.id][k] || 0) + 1
+      })
+    })
+  })
+
+  // Icônes collectives
+  const collectiveIconCounts = {}
+  cardIds.forEach(cid => {
+    const cv = collectiveVotes[cid]
+    if (!cv?.option) return
+    const opts = cv.option === 'AB' ? ['a', 'b'] : [cv.option === 'A' ? 'a' : 'b']
+    opts.forEach(o => {
+      const keys = ICON_KEYS_MULTI[cid]?.[o] || []
+      keys.forEach(k => {
+        collectiveIconCounts[k] = (collectiveIconCounts[k] || 0) + 1
+      })
+    })
+  })
+
+  const allIconKeys = Array.from(new Set([
+    ...Object.values(playerIconCounts).flatMap(c => Object.keys(c)),
+    ...Object.keys(collectiveIconCounts)
+  ])).sort()
+
+  if (allIconKeys.length === 0) {
+    return <p style={{ color: '#665e52', fontSize: 13, textAlign: 'center', padding: 30 }}>Aucun vote enregistré.</p>
+  }
+
+  return (
+    <div>
+      <p style={{ margin: '0 0 14px', fontSize: 11, color: '#665e52' }}>
+        Icônes obtenues par chaque joueur (votes individuels) et par le groupe (vote collectif)
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
+        {allIconKeys.map(key => {
+          const color = ICON_COLORS[key] || '#a09888'
+          const label = ICON_LABELS[key] || key.replace('img_', '')
+          const maxCount = Math.max(
+            ...players.map(p => playerIconCounts[p.id][key] || 0),
+            collectiveIconCounts[key] || 0
+          )
+          return (
+            <div key={key} style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${color}33`, borderRadius: 14, padding: '12px 10px', textAlign: 'center' }}>
+              {/* Cercle coloré à la place de l'image */}
+              <div style={{ width: 44, height: 44, borderRadius: '50%', background: `${color}22`, border: `2px solid ${color}66`, margin: '0 auto 8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
+                {key.includes('IAasc') ? '🤖' : key.includes('USERasc') ? '🙋' : key.includes('Mont') ? '📈' : key.includes('deles') ? '🧹' : key.includes('Tspre') ? '🔍' : key.includes('Boite') ? '📦' : key.includes('Integr') ? '✅' : key.includes('Dupl') ? '🎭' : key.includes('Frugal') ? '🌱' : key.includes('Gasp') ? '⚡' : key.includes('inclus') ? '🤝' : key.includes('Inegal') ? '⚖️' : key.includes('Error') ? '⚠️' : key.includes('Chemin') ? '🛤️' : key.includes('Dest') ? '🎯' : key.includes('Robb') ? '🔒' : key.includes('Owner') ? '📋' : key.includes('Resp') ? '🌍' : key.includes('Hegem') ? '🌐' : '●'}
+              </div>
+              <div style={{ fontSize: 11, color: '#a09888', marginBottom: 8, fontWeight: 600 }}>{label}</div>
+              {/* Par joueur */}
+              {players.map(p => {
+                const cnt = playerIconCounts[p.id][key] || 0
+                if (cnt === 0) return null
+                return (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                    <div style={{ width: 18, height: 18, borderRadius: '50%', background: stringToColor(p.pseudo), fontSize: 8, fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{p.pseudo[0].toUpperCase()}</div>
+                    <div style={{ flex: 1, height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
+                      <div style={{ width: `${(cnt/maxCount)*100}%`, height: '100%', background: color }} />
+                    </div>
+                    <span style={{ fontSize: 10, color, fontWeight: 700, minWidth: 16 }}>{cnt}×</span>
+                  </div>
+                )
+              })}
+              {/* Collectif */}
+              {collectiveIconCounts[key] > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ width: 18, height: 18, borderRadius: 4, background: 'rgba(255,215,100,0.2)', fontSize: 8, fontWeight: 700, color: '#ffd764', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>G</div>
+                  <div style={{ flex: 1, height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
+                    <div style={{ width: `${(collectiveIconCounts[key]/maxCount)*100}%`, height: '100%', background: '#ffd764' }} />
+                  </div>
+                  <span style={{ fontSize: 10, color: '#ffd764', fontWeight: 700, minWidth: 16 }}>{collectiveIconCounts[key]}×</span>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ── BILAN ─────────────────────────────────────────────────────────────
-function BilanPhase({ session, players, cardIds, allVotes, collectiveVotes, globalStats }) {
+function BilanPhase({ session, players, cardIds, allVotes, collectiveVotes }) {
   const [tab, setTab] = useState('session') // 'session' | 'global'
 
   // Stats session
@@ -598,14 +805,18 @@ function BilanPhase({ session, players, cardIds, allVotes, collectiveVotes, glob
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        {[{ id: 'session', label: '📊 Cette session' }, { id: 'global', label: '🌐 Toutes sessions' }].map(t => (
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+        {[{ id: 'session', label: '📊 Session' }, { id: 'icones', label: '🎴 Icônes' }, { id: 'global', label: '🌐 Global' }].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
-            style={{ flex: 1, padding: '8px 12px', borderRadius: 10, border: `1px solid ${tab === t.id ? 'rgba(255,215,100,0.4)' : 'rgba(255,255,255,0.08)'}`, background: tab === t.id ? 'rgba(255,215,100,0.1)' : 'rgba(255,255,255,0.04)', color: tab === t.id ? '#ffd764' : '#665e52', fontWeight: tab === t.id ? 700 : 400, cursor: 'pointer', fontSize: 12, fontFamily: 'Inter, sans-serif' }}>
+            style={{ flex: 1, padding: '8px 10px', borderRadius: 10, border: `1px solid ${tab === t.id ? 'rgba(255,215,100,0.4)' : 'rgba(255,255,255,0.08)'}`, background: tab === t.id ? 'rgba(255,215,100,0.1)' : 'rgba(255,255,255,0.04)', color: tab === t.id ? '#ffd764' : '#665e52', fontWeight: tab === t.id ? 700 : 400, cursor: 'pointer', fontSize: 12, fontFamily: 'Inter, sans-serif' }}>
             {t.label}
           </button>
         ))}
       </div>
+
+      {tab === 'icones' && (
+        <IconesBilan players={players} cardIds={cardIds} allVotes={allVotes} collectiveVotes={collectiveVotes} />
+      )}
 
       {tab === 'session' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -902,9 +1113,14 @@ export default function App() {
     return <WaitingRoom session={session} player={player} players={players} onStart={() => handlePhaseChange(PHASES.INDIVIDUAL)} />
   }
 
+  const handleCardChange = async (idx) => {
+    await supabase.from('game_sessions').update({ current_card: idx }).eq('id', session.id)
+  }
+
   if (phase === PHASES.INDIVIDUAL) {
     return <IndividualPhase session={session} player={player} players={players} cardIds={cardIds}
-      myVotes={myVotes} onVote={handleVote} onPhaseChange={handlePhaseChange} isHost={isHost} />
+      myVotes={myVotes} allVotes={allVotes} onVote={handleVote} onPhaseChange={handlePhaseChange}
+      onCardChange={handleCardChange} isHost={isHost} />
   }
 
   if (phase === PHASES.DISCUSSION) {
