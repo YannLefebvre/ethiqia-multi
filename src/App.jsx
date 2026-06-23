@@ -20,27 +20,34 @@ function genCode() {
 }
 
 // ── HOOK TIMER ───────────────────────────────────────────────────────
-function useTimer(seconds, onDone) {
+function useTimer(seconds, resetKey) {
   const [remaining, setRemaining] = useState(seconds)
   const [done, setDone] = useState(false)
   const ref = useRef(null)
+  const doneRef = useRef(false)
 
   useEffect(() => {
+    // Reset complet à chaque changement de resetKey
+    clearInterval(ref.current)
     setRemaining(seconds)
     setDone(false)
+    doneRef.current = false
+
     ref.current = setInterval(() => {
       setRemaining(r => {
         if (r <= 1) {
           clearInterval(ref.current)
-          setDone(true)
-          onDone && onDone()
+          if (!doneRef.current) {
+            doneRef.current = true
+            setDone(true)
+          }
           return 0
         }
         return r - 1
       })
     }, 1000)
     return () => clearInterval(ref.current)
-  }, [seconds])
+  }, [resetKey]) // resetKey seul déclenche le reset
 
   return { remaining, done }
 }
@@ -237,26 +244,14 @@ function stringToColor(str) {
 // ── PHASE VOTE INDIVIDUEL ─────────────────────────────────────────────
 function IndividualPhase({ session, player, players, cardIds, myVotes, onVote, onPhaseChange, isHost }) {
   const [cardIdx, setCardIdx] = useState(0)
-  const [timerActive, setTimerActive] = useState(true)
-  const [canVote, setCanVote] = useState(false)
-
   const card = questions.find(q => q.id === cardIds[cardIdx])
   const voted = myVotes[card?.id]
   const totalCards = cardIds.length
   const doneCount = Object.keys(myVotes).filter(id => cardIds.includes(Number(id))).length
 
-  const { remaining } = useTimer(timerActive ? THINK_DELAY : 0, () => setCanVote(true))
-
-  // Reset timer on card change
-  useEffect(() => {
-    setCanVote(false)
-    setTimerActive(true)
-  }, [cardIdx])
-
-  // If already voted this card, allow going next immediately
-  useEffect(() => {
-    if (voted) setCanVote(true)
-  }, [voted])
+  // Timer lié à cardIdx — se remet à zéro à chaque nouvelle carte
+  const { remaining, done: timerDone } = useTimer(THINK_DELAY, cardIdx)
+  const canVote = timerDone || !!voted
 
   const allVoted = players.every(p =>
     cardIds.every(cid => false) // checked via server — simplified: host checks
@@ -450,17 +445,13 @@ function DiscussionPhase({ session, player, players, cardIds, allVotes, onPhaseC
 // ── PHASE VOTE COLLECTIF ──────────────────────────────────────────────
 function CollectivePhase({ session, player, players, cardIds, collectiveVotes, onCollectiveVote, onPhaseChange, isHost }) {
   const [cardIdx, setCardIdx] = useState(0)
-  const [canVote, setCanVote] = useState(false)
   const [myVote, setMyVote] = useState({})
 
   const card = questions.find(q => q.id === cardIds[cardIdx])
   const totalCards = cardIds.length
 
-  const { remaining } = useTimer(THINK_DELAY, () => setCanVote(true))
-
-  useEffect(() => {
-    setCanVote(false)
-  }, [cardIdx])
+  const { remaining, done: timerDone } = useTimer(THINK_DELAY, cardIdx)
+  const canVote = timerDone
 
   const cv = collectiveVotes[card?.id]
   const countA = cv?.count_a || 0
