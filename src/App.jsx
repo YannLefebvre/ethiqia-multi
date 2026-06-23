@@ -20,36 +20,30 @@ function genCode() {
 }
 
 // ── HOOK TIMER ───────────────────────────────────────────────────────
-function useTimer(seconds, resetKey) {
+// Utilisation : monter avec une key React différente pour reset complet
+// <TimerGate key={cardIdx} seconds={10} onUnlock={() => ...} />
+function useTimer(seconds) {
   const [remaining, setRemaining] = useState(seconds)
-  const [done, setDone] = useState(false)
   const ref = useRef(null)
-  const doneRef = useRef(false)
 
   useEffect(() => {
-    // Reset complet à chaque changement de resetKey
-    clearInterval(ref.current)
-    setRemaining(seconds)
-    setDone(false)
-    doneRef.current = false
-
     ref.current = setInterval(() => {
       setRemaining(r => {
-        if (r <= 1) {
-          clearInterval(ref.current)
-          if (!doneRef.current) {
-            doneRef.current = true
-            setDone(true)
-          }
-          return 0
-        }
+        if (r <= 1) { clearInterval(ref.current); return 0 }
         return r - 1
       })
     }, 1000)
     return () => clearInterval(ref.current)
-  }, [resetKey]) // resetKey seul déclenche le reset
+  }, []) // vide : démarre une seule fois, reset via key React
 
-  return { remaining, done }
+  return { remaining, done: remaining === 0 }
+}
+
+// Composant wrapper qui se monte/démonte via key React
+function TimerGate({ seconds, onUnlock, children }) {
+  const { remaining, done } = useTimer(seconds)
+  useEffect(() => { if (done) onUnlock() }, [done])
+  return children({ remaining, done })
 }
 
 // ── COMPOSANT TIMER DISCRET ──────────────────────────────────────────
@@ -249,9 +243,10 @@ function IndividualPhase({ session, player, players, cardIds, myVotes, onVote, o
   const totalCards = cardIds.length
   const doneCount = Object.keys(myVotes).filter(id => cardIds.includes(Number(id))).length
 
-  // Timer lié à cardIdx — se remet à zéro à chaque nouvelle carte
-  const { remaining, done: timerDone } = useTimer(THINK_DELAY, cardIdx)
-  const canVote = timerDone || !!voted
+  // canVote géré via TimerGate (monté avec key=cardIdx dans le JSX)
+  const [canVote, setCanVote] = useState(false)
+  useEffect(() => { setCanVote(false) }, [cardIdx])
+  useEffect(() => { if (voted) setCanVote(true) }, [voted])
 
   const allVoted = players.every(p =>
     cardIds.every(cid => false) // checked via server — simplified: host checks
@@ -275,7 +270,11 @@ function IndividualPhase({ session, player, players, cardIds, myVotes, onVote, o
     <Screen title="Vote individuel" subtitle={`Carte ${cardIdx + 1} / ${totalCards}`} color="#4fc3f7"
       headerRight={<div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ fontSize: 11, color: '#665e52' }}>{doneCount}/{totalCards} votées</span>
-        {!canVote && <TimerRing seconds={remaining} total={THINK_DELAY} />}
+        {!canVote && (
+          <TimerGate key={cardIdx} seconds={THINK_DELAY} onUnlock={() => setCanVote(true)}>
+            {({ remaining }) => <TimerRing seconds={remaining} total={THINK_DELAY} />}
+          </TimerGate>
+        )}
       </div>}>
 
       {/* Progress dots */}
@@ -296,9 +295,13 @@ function IndividualPhase({ session, player, players, cardIds, myVotes, onVote, o
 
       {/* Lock overlay */}
       {!canVote && (
-        <div style={{ textAlign: 'center', padding: '10px 0', marginBottom: 10 }}>
-          <p style={{ margin: 0, fontSize: 12, color: '#665e52', fontStyle: 'italic' }}>Prenez le temps de lire… Le vote s'active dans {remaining}s</p>
-        </div>
+        <TimerGate key={`lock-${cardIdx}`} seconds={THINK_DELAY} onUnlock={() => setCanVote(true)}>
+          {({ remaining }) => (
+            <div style={{ textAlign: 'center', padding: '10px 0', marginBottom: 10 }}>
+              <p style={{ margin: 0, fontSize: 12, color: '#665e52', fontStyle: 'italic' }}>Prenez le temps de lire… Le vote s'active dans {remaining}s</p>
+            </div>
+          )}
+        </TimerGate>
       )}
 
       {/* Options */}
@@ -450,8 +453,8 @@ function CollectivePhase({ session, player, players, cardIds, collectiveVotes, o
   const card = questions.find(q => q.id === cardIds[cardIdx])
   const totalCards = cardIds.length
 
-  const { remaining, done: timerDone } = useTimer(THINK_DELAY, cardIdx)
-  const canVote = timerDone
+  const [canVote, setCanVote] = useState(false)
+  useEffect(() => { setCanVote(false) }, [cardIdx])
 
   const cv = collectiveVotes[card?.id]
   const countA = cv?.count_a || 0
@@ -469,7 +472,11 @@ function CollectivePhase({ session, player, players, cardIds, collectiveVotes, o
 
   return (
     <Screen title="Vote collectif" subtitle={`Carte ${cardIdx + 1} / ${totalCards}`} color="#ce93d8"
-      headerRight={!canVote ? <TimerRing seconds={remaining} total={THINK_DELAY} /> : null}>
+      headerRight={!canVote ? (
+        <TimerGate key={cardIdx} seconds={THINK_DELAY} onUnlock={() => setCanVote(true)}>
+          {({ remaining }) => <TimerRing seconds={remaining} total={THINK_DELAY} />}
+        </TimerGate>
+      ) : null}>
 
       {/* Progress */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 20, flexWrap: 'wrap' }}>
@@ -499,7 +506,11 @@ function CollectivePhase({ session, player, players, cardIds, collectiveVotes, o
       )}
 
       {!canVote && !myVote[card?.id] && (
-        <p style={{ textAlign: 'center', fontSize: 12, color: '#665e52', fontStyle: 'italic', marginBottom: 10 }}>Réfléchissez encore {remaining}s avant de voter…</p>
+        <TimerGate key={`coll-lock-${cardIdx}`} seconds={THINK_DELAY} onUnlock={() => setCanVote(true)}>
+          {({ remaining }) => (
+            <p style={{ textAlign: 'center', fontSize: 12, color: '#665e52', fontStyle: 'italic', marginBottom: 10 }}>Réfléchissez encore {remaining}s avant de voter…</p>
+          )}
+        </TimerGate>
       )}
 
       {/* Options vote */}
