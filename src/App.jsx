@@ -232,32 +232,25 @@ function stringToColor(str) {
 }
 
 // ── PHASE VOTE INDIVIDUEL ─────────────────────────────────────────────
-function IndividualPhase({ session, player, players, cardIds, myVotes, onVote, onPhaseChange, isHost }) {
-  const [cardIdx, setCardIdx] = useState(0)
+function IndividualPhase({ session, player, players, cardIds, myVotes, allVotes, onVote, onPhaseChange, onCardChange, isHost }) {
+  // cardIdx piloté par Supabase via session.current_card — synchronisé pour tous
+  const cardIdx = session.current_card ?? 0
   const card = questions.find(q => q.id === cardIds[cardIdx])
   const voted = myVotes[card?.id]
   const totalCards = cardIds.length
   const doneCount = Object.keys(myVotes).filter(id => cardIds.includes(Number(id))).length
 
-  // Timer lié à cardIdx — se remet à zéro à chaque nouvelle carte
+  // Timer : reset à chaque nouvelle carte (key React = remontage complet)
   const [canVote, setCanVote] = useState(false)
   useEffect(() => { setCanVote(false) }, [cardIdx])
   useEffect(() => { if (voted) setCanVote(true) }, [voted])
 
-  const allVoted = players.every(p =>
-    cardIds.every(cid => false) // checked via server — simplified: host checks
-  )
+  // Tous les joueurs ont-ils voté cette carte ?
+  const allVotedThisCard = players.length > 0 && players.every(p => allVotes[p.id]?.[card?.id])
 
   const handleVote = async (opt) => {
     if (!canVote) return
     await onVote(card.id, opt)
-  }
-
-  const goNext = () => {
-    if (cardIdx < totalCards - 1) setCardIdx(i => i + 1)
-  }
-  const goPrev = () => {
-    if (cardIdx > 0) setCardIdx(i => i - 1)
   }
 
   if (!card) return null
@@ -276,7 +269,7 @@ function IndividualPhase({ session, player, players, cardIds, myVotes, onVote, o
       {/* Progress dots */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 20, flexWrap: 'wrap' }}>
         {cardIds.map((cid, i) => (
-          <div key={cid} onClick={() => setCardIdx(i)} style={{ width: 10, height: 10, borderRadius: '50%', cursor: 'pointer', background: myVotes[cid] ? (myVotes[cid] === 'A' ? '#4fc3f7' : '#ce93d8') : i === cardIdx ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.08)', transition: 'all 0.2s' }} />
+          <div key={cid} style={{ width: 10, height: 10, borderRadius: '50%', background: myVotes[cid] ? (myVotes[cid] === 'A' ? '#4fc3f7' : '#ce93d8') : i === cardIdx ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.08)', transition: 'all 0.2s' }} />
         ))}
       </div>
 
@@ -313,13 +306,61 @@ function IndividualPhase({ session, player, players, cardIds, myVotes, onVote, o
         ))}
       </div>
 
-      {/* Navigation */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-        <button onClick={goPrev} disabled={cardIdx === 0} style={{ ...btnStyle('rgba(255,255,255,0.06)', '#a09888'), flex: 0, padding: '10px 18px', opacity: cardIdx === 0 ? 0.3 : 1 }}>←</button>
-        <button onClick={goNext} disabled={cardIdx === totalCards - 1} style={{ ...btnStyle('rgba(255,255,255,0.06)', '#a09888'), opacity: cardIdx === totalCards - 1 ? 0.3 : 1 }}>Suivant →</button>
-      </div>
+      {/* Attente des autres joueurs après vote */}
+      {voted && !allVotedThisCard && (
+        <div style={{ textAlign: 'center', padding: '10px 0', marginBottom: 12 }}>
+          <p style={{ margin: 0, fontSize: 12, color: '#665e52', fontStyle: 'italic' }}>
+            Vote enregistré ✓ — En attente des autres…
+            ({Object.values(allVotes).filter(v => v[card?.id]).length}/{players.length})
+          </p>
+        </div>
+      )}
 
-      {/* Host control */}
+      {/* Résultats : visibles seulement quand tous ont voté */}
+      {allVotedThisCard && (() => {
+        const countA = Object.values(allVotes).filter(v => v[card.id] === 'A').length
+        const countB = Object.values(allVotes).filter(v => v[card.id] === 'B').length
+        const tot = countA + countB
+        const pct = tot > 0 ? Math.round((countA / tot) * 100) : 0
+        return (
+          <div style={{ padding: '12px 14px', background: 'rgba(105,240,174,0.06)', border: '1px solid rgba(105,240,174,0.2)', borderRadius: 12, marginBottom: 16 }}>
+            <p style={{ margin: '0 0 8px', fontSize: 11, color: '#69f0ae', textTransform: 'uppercase', letterSpacing: 1 }}>✓ Tous ont voté</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 12, color: '#4fc3f7', fontWeight: 700 }}>{pct}%</span>
+              <div style={{ flex: 1, height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{ width: `${pct}%`, height: '100%', background: '#4fc3f7', display: 'inline-block' }} />
+                <div style={{ width: `${100-pct}%`, height: '100%', background: '#ce93d8', display: 'inline-block' }} />
+              </div>
+              <span style={{ fontSize: 12, color: '#ce93d8', fontWeight: 700 }}>{100-pct}%</span>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {players.map(p => {
+                const v = allVotes[p.id]?.[card.id]
+                return (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '3px 8px', borderRadius: 20, background: v === 'A' ? 'rgba(79,195,247,0.12)' : 'rgba(206,147,216,0.12)', border: `1px solid ${v === 'A' ? 'rgba(79,195,247,0.3)' : 'rgba(206,147,216,0.3)'}` }}>
+                    <span style={{ fontSize: 10, color: '#c0b8a8' }}>{p.pseudo}</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: v === 'A' ? '#4fc3f7' : '#ce93d8' }}>Opt.{v === 'A' ? '1' : '2'}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Navigation hôte seulement */}
+      {isHost ? (
+        <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+          <button onClick={() => onCardChange(Math.max(0, cardIdx - 1))} disabled={cardIdx === 0}
+            style={{ ...btnStyle('rgba(255,255,255,0.06)', '#a09888'), flex: 0, padding: '10px 18px', opacity: cardIdx === 0 ? 0.3 : 1 }}>←</button>
+          <button onClick={() => onCardChange(Math.min(totalCards - 1, cardIdx + 1))} disabled={cardIdx === totalCards - 1}
+            style={{ ...btnStyle('rgba(255,255,255,0.06)', '#a09888'), opacity: cardIdx === totalCards - 1 ? 0.3 : 1 }}>Suivant →</button>
+        </div>
+      ) : (
+        <p style={{ fontSize: 11, color: '#443d36', textAlign: 'center', marginBottom: 16 }}>L'hôte contrôle la navigation entre les cartes</p>
+      )}
+
+      {/* Host control — passer à la concertation */}
       {isHost && (
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 16, marginTop: 8 }}>
           <p style={{ fontSize: 11, color: '#665e52', marginBottom: 10 }}>
@@ -898,9 +939,14 @@ export default function App() {
     return <WaitingRoom session={session} player={player} players={players} onStart={() => handlePhaseChange(PHASES.INDIVIDUAL)} />
   }
 
+  const handleCardChange = async (idx) => {
+    await supabase.from('game_sessions').update({ current_card: idx }).eq('id', session.id)
+  }
+
   if (phase === PHASES.INDIVIDUAL) {
     return <IndividualPhase session={session} player={player} players={players} cardIds={cardIds}
-      myVotes={myVotes} onVote={handleVote} onPhaseChange={handlePhaseChange} isHost={isHost} />
+      myVotes={myVotes} allVotes={allVotes} onVote={handleVote} onPhaseChange={handlePhaseChange}
+      onCardChange={handleCardChange} isHost={isHost} />
   }
 
   if (phase === PHASES.DISCUSSION) {
