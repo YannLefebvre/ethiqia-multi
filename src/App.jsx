@@ -798,21 +798,40 @@ export default function App() {
   const [allVotes, setAllVotes] = useState({}) // { player_id: { question_id: option } }
   const [collectiveVotes, setCollectiveVotes] = useState({})
 
-  // ── Chargement initial & abonnements realtime ──────────────────────
-  useEffect(() => {
-    if (!session || !player) return
+  // ── Refs pour éviter les closures périmées ────────────────────────
+  const sessionIdRef = useRef(null)
+  const playerIdRef = useRef(null)
 
-    // Load initial state
+  // ── Chargement initial (une seule fois à la connexion) ─────────────
+  useEffect(() => {
+    if (!session?.id || !player?.id) return
+    if (sessionIdRef.current === session.id) return // déjà initialisé
+    sessionIdRef.current = session.id
+    playerIdRef.current = player.id
+
     loadPlayers()
     loadMyVotes()
     loadAllVotes()
     loadCollectiveVotes()
 
-    // Realtime: session changes (phase, etc.)
+    // Realtime: session changes — polling fallback toutes les 2s
     const sessionSub = supabase.channel('session-' + session.id)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'game_sessions', filter: `id=eq.${session.id}` },
-        payload => setSession(prev => ({ ...prev, ...payload.new })))
+        payload => {
+          setSession(prev => ({ ...prev, ...payload.new }))
+        })
       .subscribe()
+
+    // Polling de secours sur game_sessions (au cas où Realtime filter ne fonctionne pas)
+    const pollInterval = setInterval(async () => {
+      const { data } = await supabase.from('game_sessions').select('*').eq('id', session.id).single()
+      if (data) setSession(prev => {
+        if (prev.current_card !== data.current_card || prev.phase !== data.phase) {
+          return { ...prev, ...data }
+        }
+        return prev
+      })
+    }, 2000)
 
     // Realtime: players join
     const playerSub = supabase.channel('players-' + session.id)
@@ -833,6 +852,7 @@ export default function App() {
       .subscribe()
 
     return () => {
+      clearInterval(pollInterval)
       supabase.removeChannel(sessionSub)
       supabase.removeChannel(playerSub)
       supabase.removeChannel(votesSub)
