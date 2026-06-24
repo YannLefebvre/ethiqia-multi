@@ -955,12 +955,12 @@ export default function App() {
   const cardIds = session.card_ids || []
 
   // ── Routing des phases ────────────────────────────────────────────
-  if (phase === PHASES.WAITING) {
-    return <WaitingRoom session={session} player={player} players={players} onStart={() => handlePhaseChange(PHASES.INDIVIDUAL)} />
-  }
-
   const handleCardChange = async (idx) => {
     await supabase.from('game_sessions').update({ current_card: idx }).eq('id', session.id)
+  }
+
+  if (phase === PHASES.WAITING) {
+    return <WaitingRoom session={session} player={player} players={players} onStart={() => handlePhaseChange(PHASES.INDIVIDUAL)} />
   }
 
   if (phase === PHASES.INDIVIDUAL) {
