@@ -798,33 +798,30 @@ export default function App() {
   const [allVotes, setAllVotes] = useState({}) // { player_id: { question_id: option } }
   const [collectiveVotes, setCollectiveVotes] = useState({})
 
-  // ── Refs pour éviter les closures périmées ────────────────────────
+  // ── Ref pour stocker session.id sans closure périmée ─────────────
   const sessionIdRef = useRef(null)
-  const playerIdRef = useRef(null)
 
-  // ── Chargement initial (une seule fois à la connexion) ─────────────
+  // ── Abonnements Realtime + polling (une seule fois par session) ────
   useEffect(() => {
     if (!session?.id || !player?.id) return
-    if (sessionIdRef.current === session.id) return // déjà initialisé
+    if (sessionIdRef.current === session.id) return
     sessionIdRef.current = session.id
-    playerIdRef.current = player.id
 
     loadPlayers()
     loadMyVotes()
     loadAllVotes()
     loadCollectiveVotes()
 
-    // Realtime: session changes — polling fallback toutes les 2s
-    const sessionSub = supabase.channel('session-' + session.id)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'game_sessions', filter: `id=eq.${session.id}` },
-        payload => {
-          setSession(prev => ({ ...prev, ...payload.new }))
-        })
+    const sid = session.id // valeur capturée correctement
+
+    const sessionSub = supabase.channel('session-' + sid)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'game_sessions', filter: `id=eq.${sid}` },
+        payload => setSession(prev => ({ ...prev, ...payload.new })))
       .subscribe()
 
-    // Polling de secours sur game_sessions (au cas où Realtime filter ne fonctionne pas)
+    // Polling toutes les 2s — utilise sid (pas session.id depuis closure)
     const pollInterval = setInterval(async () => {
-      const { data } = await supabase.from('game_sessions').select('*').eq('id', session.id).single()
+      const { data } = await supabase.from('game_sessions').select('*').eq('id', sid).single()
       if (data) setSession(prev => {
         if (prev.current_card !== data.current_card || prev.phase !== data.phase) {
           return { ...prev, ...data }
@@ -833,21 +830,18 @@ export default function App() {
       })
     }, 2000)
 
-    // Realtime: players join
-    const playerSub = supabase.channel('players-' + session.id)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'players', filter: `session_id=eq.${session.id}` },
+    const playerSub = supabase.channel('players-' + sid)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'players', filter: `session_id=eq.${sid}` },
         () => loadPlayers())
       .subscribe()
 
-    // Realtime: individual votes
-    const votesSub = supabase.channel('votes-indiv-' + session.id)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'votes_indiv', filter: `session_id=eq.${session.id}` },
+    const votesSub = supabase.channel('votes-indiv-' + sid)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'votes_indiv', filter: `session_id=eq.${sid}` },
         () => loadAllVotes())
       .subscribe()
 
-    // Realtime: collective votes
-    const collSub = supabase.channel('votes-coll-' + session.id)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'votes_collectif', filter: `session_id=eq.${session.id}` },
+    const collSub = supabase.channel('votes-coll-' + sid)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'votes_collectif', filter: `session_id=eq.${sid}` },
         () => loadCollectiveVotes())
       .subscribe()
 
@@ -955,12 +949,12 @@ export default function App() {
   const cardIds = session.card_ids || []
 
   // ── Routing des phases ────────────────────────────────────────────
-  const handleCardChange = async (idx) => {
-    await supabase.from('game_sessions').update({ current_card: idx }).eq('id', session.id)
-  }
-
   if (phase === PHASES.WAITING) {
     return <WaitingRoom session={session} player={player} players={players} onStart={() => handlePhaseChange(PHASES.INDIVIDUAL)} />
+  }
+
+  const handleCardChange = async (idx) => {
+    await supabase.from('game_sessions').update({ current_card: idx }).eq('id', session.id)
   }
 
   if (phase === PHASES.INDIVIDUAL) {
