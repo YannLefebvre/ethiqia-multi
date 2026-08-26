@@ -51,29 +51,44 @@ export default function SwipeCard({ titre, situation, onChoose, disabled, accent
 
   const lean = Math.abs(dx) > THRESHOLD * 0.5 ? (dx > 0 ? 'B' : 'A') : null
 
+  const chipStyle = (side) => ({
+    width: 34, height: 34, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: 13, fontWeight: 700, flexShrink: 0, transition: 'all 0.2s',
+    background: lean === side ? accentColor : 'rgba(255,255,255,0.06)',
+    color: lean === side ? '#0f0c29' : '#665e52',
+    transform: lean === side ? 'scale(1.15)' : 'scale(1)',
+  })
+
   return (
-    <div
-      onMouseDown={handleDown}
-      onTouchStart={handleDown}
-      style={{
-        background: 'rgba(255,255,255,0.04)',
-        border: `1px solid ${lean ? accentColor : 'rgba(255,255,255,0.08)'}`,
-        borderRadius: 16, padding: 22, marginBottom: 20,
-        transform: `translateX(${dx}px) rotate(${dx / 18}deg)`,
-        transition: dragging ? 'none' : 'transform 0.35s ease, border-color 0.2s',
-        cursor: disabled ? 'default' : 'grab',
-        touchAction: 'none', userSelect: 'none',
-      }}
-    >
-      <p style={{ margin: '0 0 10px', fontSize: 12, color: accentColor, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
-        {titre}
-      </p>
-      <p style={{ margin: 0, fontSize: 15, color: '#f5efe0', lineHeight: 1.6, fontFamily: 'Georgia, serif' }}>
-        {situation}
-      </p>
-      {lean && (
-        <p style={{ margin: '10px 0 0', fontSize: 11, color: accentColor, fontWeight: 700, textAlign: lean === 'A' ? 'left' : 'right' }}>
-          {lean === 'A' ? '← relâchez pour A' : 'relâchez pour B →'}
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={chipStyle('A')}>A</div>
+        <div
+          onMouseDown={handleDown}
+          onTouchStart={handleDown}
+          style={{
+            flex: 1,
+            background: 'rgba(255,255,255,0.04)',
+            border: `1px solid ${lean ? accentColor : 'rgba(255,255,255,0.08)'}`,
+            borderRadius: 16, padding: 22,
+            transform: `translateX(${dx}px) rotate(${dx / 18}deg)`,
+            transition: dragging ? 'none' : 'transform 0.35s ease, border-color 0.2s',
+            cursor: disabled ? 'default' : 'grab',
+            touchAction: 'none', userSelect: 'none',
+          }}
+        >
+          <p style={{ margin: '0 0 10px', fontSize: 12, color: accentColor, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
+            {titre}
+          </p>
+          <p style={{ margin: 0, fontSize: 15, color: '#f5efe0', lineHeight: 1.6, fontFamily: 'Georgia, serif' }}>
+            {situation}
+          </p>
+        </div>
+        <div style={chipStyle('B')}>B</div>
+      </div>
+      {!disabled && (
+        <p style={{ textAlign: 'center', fontSize: 11, color: '#665e52', margin: '10px 0 0' }}>
+          ↔ {lean ? `Relâchez pour valider ${lean}` : 'Glissez la carte vers A ou B, ou choisissez ci-dessous'}
         </p>
       )}
     </div>
