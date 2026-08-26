@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import Screen from './Screen.jsx'
 import TimerRing from './TimerRing.jsx'
 import OptionButton from './OptionButton.jsx'
+import SwipeCard from './SwipeCard.jsx'
 import HostControls from './HostControls.jsx'
 import ChatPanel from './ChatPanel.jsx'
 import { stringToColor } from '../lib/avatarColor.js'
@@ -77,17 +78,13 @@ export default function FinalChoiceScreen({
         />
       )}
     >
-      <div style={{
-        background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
-        borderRadius: 16, padding: 22, marginBottom: 18,
-      }}>
-        <p style={{ margin: '0 0 10px', fontSize: 12, color: '#ce93d8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
-          {card.titre}
-        </p>
-        <p style={{ margin: 0, fontSize: 15, color: '#f5efe0', lineHeight: 1.6 }}>
-          {card.situation}
-        </p>
-      </div>
+      <SwipeCard
+        titre={card.titre}
+        situation={card.situation}
+        disabled={!canChoose}
+        accentColor="#ce93d8"
+        onChoose={(opt) => submitChoice(currentCardNum, opt)}
+      />
 
       <div style={{
         background: 'rgba(206,147,216,0.07)', border: '1px solid rgba(206,147,216,0.2)',
