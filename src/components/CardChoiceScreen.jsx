@@ -20,6 +20,8 @@ export default function CardChoiceScreen({
   isHost,
   endSession,
   forceAdvance,
+  pauseTimer,
+  resumeTimer,
 }) {
   const card = questions.find((q) => q.id === currentCardNum)
   const totalCards = room.card_sequence.length
@@ -42,10 +44,13 @@ export default function CardChoiceScreen({
       title={isReading ? 'Lecture' : 'Vote individuel'}
       subtitle={`Carte ${position} / ${totalCards}`}
       color="#4fc3f7"
-      headerRight={<TimerRing seconds={secondsLeft ?? 0} total={PHASE_DURATIONS[room.phase] ?? 10} />}
+      headerRight={<TimerRing seconds={secondsLeft} total={PHASE_DURATIONS[room.phase] ?? 10} />}
       hostControl={isHost && (
         <HostControls
           onForceAdvance={forceAdvance}
+          onPauseTimer={pauseTimer}
+          onResumeTimer={resumeTimer}
+          isPaused={secondsLeft === null}
           onEndSession={endSession}
           advanceLabel={isReading ? 'Passer au vote' : 'Clore le vote individuel'}
         />

@@ -66,7 +66,7 @@ export default function App() {
     room, players, answers, messages, messageRatings, myPlayer, isHost, error, roomLoaded,
     secondsLeft, currentCardNum, hasSubmittedCurrentPhase,
     myAnswerForCurrentCard, submittedCount, connectedCount, peerInitialChoices,
-    getCardStats, getBilan, getRatingBilan, endSession, forceAdvance, sendMessage, rateMessage,
+    getCardStats, getBilan, getRatingBilan, endSession, forceAdvance, pauseTimer, resumeTimer, sendMessage, rateMessage,
   } = useMultiplayerRoom(roomId)
 
   if (!roomId) {
@@ -107,6 +107,8 @@ export default function App() {
         isHost={isHost}
         endSession={endSession}
         forceAdvance={forceAdvance}
+        pauseTimer={pauseTimer}
+        resumeTimer={resumeTimer}
       />
     )
   }
@@ -126,6 +128,8 @@ export default function App() {
         isHost={isHost}
         endSession={endSession}
         forceAdvance={forceAdvance}
+        pauseTimer={pauseTimer}
+        resumeTimer={resumeTimer}
         messages={messages}
         messageRatings={messageRatings}
         players={players}
@@ -146,6 +150,8 @@ export default function App() {
         isHost={isHost}
         endSession={endSession}
         forceAdvance={forceAdvance}
+        pauseTimer={pauseTimer}
+        resumeTimer={resumeTimer}
       />
     )
   }

@@ -1,4 +1,4 @@
-export default function HostControls({ onForceAdvance, onEndSession, advanceLabel }) {
+export default function HostControls({ onForceAdvance, onEndSession, onPauseTimer, onResumeTimer, isPaused, advanceLabel }) {
   const handleForceAdvance = () => {
     const confirmed = window.confirm(
       `${advanceLabel ?? 'Passer à l\u2019étape suivante'} maintenant, pour tout le monde ?`
@@ -20,7 +20,15 @@ export default function HostControls({ onForceAdvance, onEndSession, advanceLabe
   }
 
   return (
-    <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
+    <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
+      {onPauseTimer && onResumeTimer && (
+        <button
+          onClick={() => (isPaused ? onResumeTimer() : onPauseTimer())}
+          style={{ ...linkStyle, color: isPaused ? '#ffd764' : '#665e52' }}
+        >
+          {isPaused ? '▶ Reprendre le chrono' : '⏸ Mettre le chrono en pause'}
+        </button>
+      )}
       {onForceAdvance && (
         <button onClick={handleForceAdvance} style={linkStyle}>
           ⏭ {advanceLabel ?? 'Passer à l\u2019étape suivante'}

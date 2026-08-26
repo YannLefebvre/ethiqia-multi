@@ -45,7 +45,7 @@ function VoteBar({ label, countA, countB, total }) {
   )
 }
 
-export default function ResultsScreen({ room, secondsLeft, currentCardNum, getCardStats, isHost, endSession, forceAdvance }) {
+export default function ResultsScreen({ room, secondsLeft, currentCardNum, getCardStats, isHost, endSession, forceAdvance, pauseTimer, resumeTimer }) {
   const card = questions.find((q) => q.id === currentCardNum)
   const totalCards = room.card_sequence.length
   const position = room.current_index + 1
@@ -67,10 +67,13 @@ export default function ResultsScreen({ room, secondsLeft, currentCardNum, getCa
       title="Résultats"
       subtitle={`Carte ${position} / ${totalCards}`}
       color="#69f0ae"
-      headerRight={<TimerRing seconds={secondsLeft ?? 0} total={PHASE_DURATION} />}
+      headerRight={<TimerRing seconds={secondsLeft} total={PHASE_DURATION} />}
       hostControl={isHost && (
         <HostControls
           onForceAdvance={forceAdvance}
+          onPauseTimer={pauseTimer}
+          onResumeTimer={resumeTimer}
+          isPaused={secondsLeft === null}
           onEndSession={endSession}
           advanceLabel={isLastCard ? 'Passer au bilan' : 'Passer à la carte suivante'}
         />

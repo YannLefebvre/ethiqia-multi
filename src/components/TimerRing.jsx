@@ -1,4 +1,18 @@
 export default function TimerRing({ seconds, total }) {
+  if (seconds === null) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{
+          width: 40, height: 40, borderRadius: '50%', border: '3px solid rgba(255,255,255,0.15)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15,
+        }}>
+          ⏸
+        </div>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#a09888' }}>en pause</span>
+      </div>
+    )
+  }
+
   const pct = total > 0 ? seconds / total : 0
   const r = 16
   const circ = 2 * Math.PI * r

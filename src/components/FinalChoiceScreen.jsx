@@ -23,6 +23,8 @@ export default function FinalChoiceScreen({
   isHost,
   endSession,
   forceAdvance,
+  pauseTimer,
+  resumeTimer,
   messages,
   messageRatings,
   players,
@@ -63,10 +65,13 @@ export default function FinalChoiceScreen({
       title="Choix définitif"
       subtitle={`Carte ${position} / ${totalCards}`}
       color="#ce93d8"
-      headerRight={<TimerRing seconds={secondsLeft ?? 0} total={PHASE_DURATION} />}
+      headerRight={<TimerRing seconds={secondsLeft} total={PHASE_DURATION} />}
       hostControl={isHost && (
         <HostControls
           onForceAdvance={forceAdvance}
+          onPauseTimer={pauseTimer}
+          onResumeTimer={resumeTimer}
+          isPaused={secondsLeft === null}
           onEndSession={endSession}
           advanceLabel="Clore la discussion et révéler les résultats"
         />

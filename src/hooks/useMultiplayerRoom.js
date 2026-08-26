@@ -229,6 +229,18 @@ export function useMultiplayerRoom(roomId) {
     if (rpcError) throw rpcError;
   }, [roomId]);
 
+  const pauseTimer = useCallback(async () => {
+    if (!roomId) return;
+    const { error: rpcError } = await supabase.rpc('pause_timer', { p_room_id: roomId });
+    if (rpcError) throw rpcError;
+  }, [roomId]);
+
+  const resumeTimer = useCallback(async (seconds = 30) => {
+    if (!roomId) return;
+    const { error: rpcError } = await supabase.rpc('resume_timer', { p_room_id: roomId, p_seconds: seconds });
+    if (rpcError) throw rpcError;
+  }, [roomId]);
+
   const rateMessage = useCallback(async (messageId, rating) => {
     const { error: rpcError } = await supabase.rpc('rate_message', {
       p_message_id: messageId, p_rating: rating,
@@ -365,7 +377,7 @@ export function useMultiplayerRoom(roomId) {
     myAnswerForCurrentCard, hasSubmittedCurrentPhase,
     submittedCount, connectedCount, peerInitialChoices,
     secondsLeft, getCardStats, getBilan, getRatingBilan,
-    createRoom, joinRoom, startGame, submitChoice, endSession, forceAdvance, sendMessage, rateMessage,
+    createRoom, joinRoom, startGame, submitChoice, endSession, forceAdvance, pauseTimer, resumeTimer, sendMessage, rateMessage,
   };
 }
 
